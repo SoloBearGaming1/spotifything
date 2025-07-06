@@ -961,8 +961,66 @@
             const seconds = Math.floor((ms % 60000) / 1000);
             return `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
+        
+        }
 
-        async function downloadPlaylist(playlistId) {
+        function sanitizeFileName(filename) {
+            return filename.replace(/[<>:"/\\|?*]/g, '-').trim();
+        }
+
+        async function createAndDownloadZip(playlistName, tracks) {
+    const zip = new JSZip();
+    const playlistFolder = zip.folder(sanitizeFileName(playlistName));
+    
+    // Create a playlist info file
+    const playlistInfo = {
+        name: playlistName,
+        totalTracks: tracks.length,
+        downloadDate: new Date().toISOString(),
+        quality: `${settings.audioQuality}kbps ${settings.audioFormat.toUpperCase()}`,
+        tracks: tracks.map(track => ({
+            name: track.name,
+            artists: track.artists.map(a => a.name).join(', '),
+            album: track.album ? track.album.name : 'Unknown Album',
+            duration: formatDuration(track.duration_ms),
+            spotifyUrl: track.external_urls ? track.external_urls.spotify : ''
+        }))
+    };
+    
+    playlistFolder.file('playlist_info.json', JSON.stringify(playlistInfo, null, 2));
+    
+    // Create a simple text file with track listing
+    const trackListing = tracks.map((track, index) => 
+        `${index + 1}. ${track.name} - ${track.artists.map(a => a.name).join(', ')}`
+    ).join('\n');
+    
+    playlistFolder.file('track_listing.txt', trackListing);
+    
+    // Create a README file
+    const readme = `Spotify Playlist: ${playlistName}
+Downloaded on: ${new Date().toLocaleDateString()}
+Total tracks: ${tracks.length}
+Quality: ${settings.audioQuality}kbps ${settings.audioFormat.toUpperCase()}
+
+Note: This download contains playlist metadata and track information.
+Audio files would need to be obtained through legitimate means.
+
+Track Listing:
+${trackListing}`;
+    
+    playlistFolder.file('README.txt', readme);
+    
+    // Generate and download the ZIP
+    const content = await zip.generateAsync({type: 'blob'});
+    const fileName = `${sanitizeFileName(playlistName)}_playlist.zip`;
+    
+    // Use FileSaver.js to download
+    saveAs(content, fileName);
+    
+    return fileName;
+}
+
+async function downloadPlaylist(playlistId) {
     const playlist = playlists.find(p => p.id === playlistId);
     if (!playlist) {
         logMessage('❌ Playlist not found', 'error');
@@ -1047,7 +1105,7 @@ async function finalizeZipDownload(playlistId, playlist, tracks, progressBar, pr
         currentDownloads.delete(playlistId);
     }
 }
-
+        
         async function fetchAllPlaylistTracks(playlistId) {
             const allTracks = [];
             let offset = 0;
@@ -1081,11 +1139,7 @@ async function finalizeZipDownload(playlistId, playlist, tracks, progressBar, pr
             }
             
             return allTracks;
-        }
 
-        function sanitizeFileName(filename) {
-            return filename.replace(/[<>:"/\\|?*]/g, '-').trim();
-        }
         
         async function createAndDownloadZip(playlistName, tracks) {
     const zip = new JSZip();
