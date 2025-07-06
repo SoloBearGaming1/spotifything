@@ -514,6 +514,10 @@
             }
         }
     </style>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
 </head>
 <body>
     <div class="container">
@@ -959,68 +963,90 @@
         }
 
         async function downloadPlaylist(playlistId) {
-            const playlist = playlists.find(p => p.id === playlistId);
-            if (!playlist) {
-                logMessage('❌ Playlist not found', 'error');
-                return;
-            }
+    const playlist = playlists.find(p => p.id === playlistId);
+    if (!playlist) {
+        logMessage('❌ Playlist not found', 'error');
+        return;
+    }
 
-            if (currentDownloads.has(playlistId)) {
-                logMessage('⚠️ Playlist is already being downloaded', 'warning');
-                return;
-            }
+    if (currentDownloads.has(playlistId)) {
+        logMessage('⚠️ Playlist is already being downloaded', 'warning');
+        return;
+    }
 
-            const progressContainer = document.getElementById(`progress-${playlistId}`);
-            const progressBar = document.getElementById(`progress-bar-${playlistId}`);
-            
-            progressContainer.style.display = 'block';
-            progressBar.style.width = '0%';
-            
-            logMessage(`🚀 Starting download: ${playlist.name}`, 'info');
-            logMessage(`📁 Quality: ${settings.audioQuality}kbps ${settings.audioFormat.toUpperCase()}`, 'info');
-            logMessage(`📂 Destination: ${downloadPath}\\${sanitizeFileName(playlist.name)}`, 'info');
-            
-            try {
-                // Fetch all tracks first
-                const tracks = await fetchAllPlaylistTracks(playlistId);
-                
-                if (tracks.length === 0) {
-                    logMessage('❌ No tracks found in playlist', 'error');
-                    return;
-                }
-                
-                logMessage(`🎵 Found ${tracks.length} tracks to download`, 'info');
-                
-                // Simulate download process
-                const downloadInterval = setInterval(() => {
-                    const currentProgress = parseFloat(progressBar.style.width) || 0;
-                    const increment = Math.random() * 8 + 2; // Random increment between 2-10%
-                    const newProgress = Math.min(currentProgress + increment, 100);
-                    
-                    progressBar.style.width = `${newProgress}%`;
-                    
-                    if (newProgress >= 100) {
-                        clearInterval(downloadInterval);
-                        currentDownloads.delete(playlistId);
-                        progressContainer.style.display = 'none';
-                        logMessage(`✅ Successfully downloaded: ${playlist.name}`, 'success');
-                        logMessage(`📁 ${tracks.length} tracks saved to: ${downloadPath}\\${sanitizeFileName(playlist.name)}`, 'success');
-                    } else {
-                        const currentTrack = Math.floor((newProgress / 100) * tracks.length);
-                        if (tracks[currentTrack]) {
-                            logMessage(`⏳ Downloading: ${tracks[currentTrack].name} by ${tracks[currentTrack].artists.map(a => a.name).join(', ')}`, 'info');
-                        }
-                    }
-                }, 800);
-                
-                currentDownloads.set(playlistId, downloadInterval);
-                
-            } catch (error) {
-                logMessage(`❌ Download failed: ${error.message}`, 'error');
-                progressContainer.style.display = 'none';
-                currentDownloads.delete(playlistId);
-            }
+    const progressContainer = document.getElementById(`progress-${playlistId}`);
+    const progressBar = document.getElementById(`progress-bar-${playlistId}`);
+    
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    
+    logMessage(`🚀 Starting download: ${playlist.name}`, 'info');
+    logMessage(`📁 Quality: ${settings.audioQuality}kbps ${settings.audioFormat.toUpperCase()}`, 'info');
+    logMessage(`📂 Creating ZIP file with playlist metadata...`, 'info');
+    
+    try {
+        // Fetch all tracks first
+        const tracks = await fetchAllPlaylistTracks(playlistId);
+        
+        if (tracks.length === 0) {
+            logMessage('❌ No tracks found in playlist', 'error');
+            progressContainer.style.display = 'none';
+            return;
         }
+        
+        logMessage(`🎵 Found ${tracks.length} tracks to process`, 'info');
+        
+        // Simulate progress while preparing ZIP
+        const downloadInterval = setInterval(() => {
+            const currentProgress = parseFloat(progressBar.style.width) || 0;
+            const increment = Math.random() * 15 + 5; // Faster progress for ZIP creation
+            const newProgress = Math.min(currentProgress + increment, 90);
+            
+            progressBar.style.width = `${newProgress}%`;
+            
+            if (newProgress >= 90) {
+                clearInterval(downloadInterval);
+                // Final step - create and download ZIP
+                finalizeZipDownload(playlistId, playlist, tracks, progressBar, progressContainer);
+            } else {
+                const currentTrack = Math.floor((newProgress / 90) * tracks.length);
+                if (tracks[currentTrack]) {
+                    logMessage(`📝 Processing: ${tracks[currentTrack].name}`, 'info');
+                }
+            }
+        }, 300);
+        
+        currentDownloads.set(playlistId, downloadInterval);
+        
+    } catch (error) {
+        logMessage(`❌ Download failed: ${error.message}`, 'error');
+        progressContainer.style.display = 'none';
+        currentDownloads.delete(playlistId);
+    }
+}
+
+async function finalizeZipDownload(playlistId, playlist, tracks, progressBar, progressContainer) {
+    try {
+        logMessage('📦 Creating ZIP file...', 'info');
+        progressBar.style.width = '95%';
+        
+        const zipFileName = await createAndDownloadZip(playlist.name, tracks);
+        
+        progressBar.style.width = '100%';
+        
+        setTimeout(() => {
+            currentDownloads.delete(playlistId);
+            progressContainer.style.display = 'none';
+            logMessage(`✅ Successfully created: ${zipFileName}`, 'success');
+            logMessage(`📁 ZIP contains playlist metadata and track information`, 'success');
+        }, 1000);
+        
+    } catch (error) {
+        logMessage(`❌ Failed to create ZIP: ${error.message}`, 'error');
+        progressContainer.style.display = 'none';
+        currentDownloads.delete(playlistId);
+    }
+}
 
         async function fetchAllPlaylistTracks(playlistId) {
             const allTracks = [];
@@ -1060,6 +1086,58 @@
         function sanitizeFileName(filename) {
             return filename.replace(/[<>:"/\\|?*]/g, '-').trim();
         }
+        
+        async function createAndDownloadZip(playlistName, tracks) {
+    const zip = new JSZip();
+    const playlistFolder = zip.folder(sanitizeFileName(playlistName));
+    
+    // Create a playlist info file
+    const playlistInfo = {
+        name: playlistName,
+        totalTracks: tracks.length,
+        downloadDate: new Date().toISOString(),
+        quality: `${settings.audioQuality}kbps ${settings.audioFormat.toUpperCase()}`,
+        tracks: tracks.map(track => ({
+            name: track.name,
+            artists: track.artists.map(a => a.name).join(', '),
+            album: track.album ? track.album.name : 'Unknown Album',
+            duration: formatDuration(track.duration_ms),
+            spotifyUrl: track.external_urls ? track.external_urls.spotify : ''
+        }))
+    };
+    
+    playlistFolder.file('playlist_info.json', JSON.stringify(playlistInfo, null, 2));
+    
+    // Create a simple text file with track listing
+    const trackListing = tracks.map((track, index) => 
+        `${index + 1}. ${track.name} - ${track.artists.map(a => a.name).join(', ')}`
+    ).join('\n');
+    
+    playlistFolder.file('track_listing.txt', trackListing);
+    
+    // Create a README file
+    const readme = `Spotify Playlist: ${playlistName}
+Downloaded on: ${new Date().toLocaleDateString()}
+Total tracks: ${tracks.length}
+Quality: ${settings.audioQuality}kbps ${settings.audioFormat.toUpperCase()}
+
+Note: This download contains playlist metadata and track information.
+Audio files would need to be obtained through legitimate means.
+
+Track Listing:
+${trackListing}`;
+    
+    playlistFolder.file('README.txt', readme);
+    
+    // Generate and download the ZIP
+    const content = await zip.generateAsync({type: 'blob'});
+    const fileName = `${sanitizeFileName(playlistName)}_playlist.zip`;
+    
+    // Use FileSaver.js to download
+    saveAs(content, fileName);
+    
+    return fileName;
+}
 
         function stopDownload() {
             if (currentDownloads.size === 0) {
